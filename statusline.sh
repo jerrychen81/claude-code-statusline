@@ -114,6 +114,8 @@ parsed=$(echo "$input" | jq -r '
   (.cost.total_duration_ms // 0 | tostring),
   (.context_window.context_window_size // 0 | tostring),
   (.worktree.name // ""),
+  (.rate_limits.five_hour.resets_at // 0 | tostring),
+  (.rate_limits.seven_day.resets_at // 0 | tostring),
   "END"
 ' 2>/dev/null) || fallback_prompt "─ │ parse error"
 
@@ -132,6 +134,8 @@ parsed=$(echo "$input" | jq -r '
   IFS= read -r duration_ms
   IFS= read -r ctx_size
   IFS= read -r wt_name
+  IFS= read -r rate5h_reset_at
+  IFS= read -r rate7d_reset_at
   IFS= read -r _sentinel
 } <<< "$parsed"
 
@@ -226,11 +230,18 @@ dur_ms=${duration_ms:-0}
 dur_section=""
 if (( dur_ms > 0 )); then
   dur_sec=$((dur_ms / 1000))
-  dur_min=$((dur_sec / 60))
+  dur_d=$((dur_sec / 86400))
+  dur_h=$(((dur_sec % 86400) / 3600))
+  dur_min=$(((dur_sec % 3600) / 60))
   dur_s=$((dur_sec % 60))
   # 格式化後仍為 0m0s 就不顯示（session 啟動初期 dur_ms 可能是幾百毫秒）
-  if (( dur_min > 0 || dur_s > 0 )); then
-    dur_section="${SEP}${GRAY}${S_TIME}${dur_min}m${dur_s}s${RST}"
+  if (( dur_d > 0 || dur_h > 0 || dur_min > 0 || dur_s > 0 )); then
+    dur_fmt=""
+    (( dur_d > 0 )) && dur_fmt+="${dur_d}d"
+    (( dur_h > 0 )) && dur_fmt+="${dur_h}h"
+    (( dur_min > 0 )) && dur_fmt+="${dur_min}m"
+    dur_fmt+="${dur_s}s"
+    dur_section="${SEP}${GRAY}${S_TIME}${dur_fmt}${RST}"
   fi
 fi
 
@@ -246,7 +257,13 @@ dirty=""
 
 git_cache_is_stale() {
   [[ ! -f "$GIT_CACHE" ]] && return 0
-  local cache_age=$(( $(date +%s) - $(stat -f %m "$GIT_CACHE" 2>/dev/null || echo 0) ))
+  local mtime
+  if [[ "$(uname)" == "Darwin" ]]; then
+    mtime=$(stat -f %m "$GIT_CACHE" 2>/dev/null || echo 0)
+  else
+    mtime=$(stat -c %Y "$GIT_CACHE" 2>/dev/null || echo 0)
+  fi
+  local cache_age=$(( $(date +%s) - mtime ))
   (( cache_age > GIT_CACHE_MAX_AGE ))
 }
 
@@ -290,22 +307,59 @@ if (( lines_add > 0 || lines_rm > 0 )); then
 fi
 
 # ═══════════════════════════════════════════════════════════════
-# 速率限制（條件顯示）
+# 速率限制（條件顯示，含重置倒計時）
 # ═══════════════════════════════════════════════════════════════
 
 rate_section=""
 rate5h_int=${rate5h%.*}; rate5h_int=${rate5h_int:-0}
 rate7d_int=${rate7d%.*}; rate7d_int=${rate7d_int:-0}
 
+# 倒計時：直接用 JSON 裡的 resets_at epoch
+now_epoch=$(date +%s)
+
+format_remaining_hm() {
+  local rem=$1
+  if (( rem <= 0 )); then echo "now"; return; fi
+  local h=$(( rem / 3600 ))
+  local m=$(( (rem % 3600) / 60 ))
+  if (( h > 0 )); then echo "${h}h${m}m"; else echo "${m}m"; fi
+}
+
+format_remaining_dhm() {
+  local rem=$1
+  if (( rem <= 0 )); then echo "now"; return; fi
+  local d=$(( rem / 86400 ))
+  local h=$(( (rem % 86400) / 3600 ))
+  local m=$(( (rem % 3600) / 60 ))
+  echo "${d}d${h}h${m}m"
+}
+
+rate5h_eta=""
+rate7d_eta=""
+if (( rate5h_int > 0 && ${rate5h_reset_at:-0} > 0 )); then
+  rate5h_eta=$(format_remaining_hm $(( rate5h_reset_at - now_epoch )))
+fi
+if (( rate7d_int > 0 && ${rate7d_reset_at:-0} > 0 )); then
+  rate7d_eta=$(format_remaining_dhm $(( rate7d_reset_at - now_epoch )))
+fi
+
 rate_parts=""
 if (( rate5h_int >= 0 )); then
-  if (( rate5h_int >= 80 )); then rate_parts+="${RED}5h:${rate5h_int}%${RST}"
-  else rate_parts+="${GRAY}5h:${rate5h_int}%${RST}"; fi
+  if (( rate5h_int >= 80 )); then rc="$RED"; else rc="$GRAY"; fi
+  if [[ -n "$rate5h_eta" ]]; then
+    rate_parts+="${rc}5h:${rate5h_int}%(↺ ${rate5h_eta})${RST}"
+  else
+    rate_parts+="${rc}5h:${rate5h_int}%${RST}"
+  fi
 fi
 if (( rate7d_int >= 0 )); then
   if [[ -n "$rate_parts" ]]; then rate_parts+=" "; fi
-  if (( rate7d_int >= 80 )); then rate_parts+="${RED}7d:${rate7d_int}%${RST}"
-  else rate_parts+="${GRAY}7d:${rate7d_int}%${RST}"; fi
+  if (( rate7d_int >= 80 )); then rc="$RED"; else rc="$GRAY"; fi
+  if [[ -n "$rate7d_eta" ]]; then
+    rate_parts+="${rc}7d:${rate7d_int}%(↺ ${rate7d_eta})${RST}"
+  else
+    rate_parts+="${rc}7d:${rate7d_int}%${RST}"
+  fi
 fi
 if [[ -n "$rate_parts" ]]; then
   rate_section="${SEP}${rate_parts}"
@@ -363,3 +417,4 @@ done
 
 # 只輸出兩行（Claude Code 有自己的輸入提示符，不需要我們的 ❯）
 printf '%b\n%b' "$line1" "$line2"
+
