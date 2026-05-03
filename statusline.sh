@@ -43,8 +43,10 @@ MAGENTA='\033[35m'
 # Anthropic 品牌紫 (#7266EA)
 if (( USE_TRUECOLOR )); then
   PURPLE='\033[38;2;114;102;234m'
+  BRIGHT_PURPLE='\033[38;2;199;125;255m'
 else
   PURPLE='\033[35m'
+  BRIGHT_PURPLE='\033[95m'
 fi
 
 # 符號集
@@ -389,12 +391,12 @@ line1+="${rate_section}"
 
 parts=()
 if [[ -n "$git_branch" ]]; then
-  parts+=("${GRAY}${S_BRANCH}${git_branch}${dirty}${RST}")
+  parts+=("${BRIGHT_PURPLE}${S_BRANCH}${git_branch}${dirty}${RST}")
 fi
 if [[ -n "$lines_section" ]]; then
   parts+=("${lines_section}")
 fi
-parts+=("${BLUE}${dir}${RST}")
+parts+=("${BRIGHT_PURPLE}${dir}${RST}")
 
 # Agent / Worktree 指示器（僅在非主 session 時顯示）
 if [[ -n "${wt_name:-}" ]]; then
