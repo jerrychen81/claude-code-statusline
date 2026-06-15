@@ -267,7 +267,7 @@ if [[ -n "${transcript_path:-}" && -f "$transcript_path" ]]; then
 
   cache_mtime=""; cache_in=""; cache_out=""
   if [[ -f "$TOKEN_CACHE" ]]; then
-    IFS='|' read -r cache_mtime cache_in cache_out < "$TOKEN_CACHE"
+    IFS='|' read -r cache_mtime cache_in cache_out < "$TOKEN_CACHE" || true
   fi
 
   if [[ "$cache_mtime" == "$tp_mtime" && -n "$cache_in" ]]; then
@@ -289,7 +289,7 @@ if [[ -n "${transcript_path:-}" && -f "$transcript_path" ]]; then
     if [[ -n "$sums" ]]; then
       tok_in="${sums% *}"
       tok_out="${sums#* }"
-      printf '%s|%s|%s' "$tp_mtime" "$tok_in" "$tok_out" > "$TOKEN_CACHE" 2>/dev/null || true
+      printf '%s|%s|%s\n' "$tp_mtime" "$tok_in" "$tok_out" > "$TOKEN_CACHE" 2>/dev/null || true
     fi
   fi
 fi
