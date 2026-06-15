@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # ~/.claude/statusline.sh — Claude Code session status line (aesthetic edition)
 #
-# 三行輸出：
-#   第一行：◆ 模型 │ 漸層進度條 百分比 │ 費用 │ 時間 │ 速率限制
-#   第二行：⎇分支* │ +增/-減 │ 目錄
-#   第三行：❯ 提示符（顏色跟上下文用量連動）
+# 兩行輸出：
+#   第一行：◆ 模型 │ 漸層進度條 百分比 │ effort 推理強度 │ In:輸入 Out:輸出 token │ 時間 │ 速率限制
+#   第二行：⎇分支* │ 目錄
 #
 # 環境變數：
 #   CLAUDE_STATUSLINE_ASCII=1     退回純 ASCII
@@ -52,11 +51,11 @@ fi
 # 符號集
 if [[ "$USE_ASCII" == "1" ]]; then
   S_BRAND="<>"
-  S_BRANCH=">"
+  S_BRANCH="> "
   S_WARN="!"
   S_PROMPT=">"
   S_TIME=""
-  S_COST=""
+  S_EFFORT=""
   SEP=" | "
 elif [[ "$USE_NERDFONT" == "1" ]]; then
   S_BRAND="◆"
@@ -64,7 +63,7 @@ elif [[ "$USE_NERDFONT" == "1" ]]; then
   S_WARN=" 󰀦"
   S_PROMPT="❯"
   S_TIME="󰔟 "
-  S_COST=" "
+  S_EFFORT="󰓅 "
   if [[ "$USE_POWERLINE" == "1" ]]; then
     SEP="  "
   else
@@ -72,11 +71,11 @@ elif [[ "$USE_NERDFONT" == "1" ]]; then
   fi
 else
   S_BRAND="◆"
-  S_BRANCH="⎇"
+  S_BRANCH="⎇ "
   S_WARN=" ⚠"
   S_PROMPT="❯"
   S_TIME=""
-  S_COST=""
+  S_EFFORT="⚡"
   if [[ "$USE_POWERLINE" == "1" ]]; then
     SEP="  "
   else
@@ -104,40 +103,40 @@ input=$(cat)
 parsed=$(echo "$input" | jq -r '
   (.model.display_name // ""),
   (.context_window.used_percentage // 0 | tostring),
-  (.cost.total_cost_usd // 0 | tostring),
+  (.effort.level // ""),
   (.workspace.current_dir // "." | split("/") | last),
   (.worktree.branch // ""),
   (.rate_limits.five_hour.used_percentage // -1 | tostring),
   (.rate_limits.seven_day.used_percentage // -1 | tostring),
   (.agent.name // ""),
   (.workspace.current_dir // "."),
-  (.cost.total_lines_added // 0 | tostring),
-  (.cost.total_lines_removed // 0 | tostring),
   (.cost.total_duration_ms // 0 | tostring),
   (.context_window.context_window_size // 0 | tostring),
   (.worktree.name // ""),
   (.rate_limits.five_hour.resets_at // 0 | tostring),
   (.rate_limits.seven_day.resets_at // 0 | tostring),
+  (.context_window.total_input_tokens // 0 | tostring),
+  (.context_window.total_output_tokens // 0 | tostring),
   "END"
 ' 2>/dev/null) || fallback_prompt "─ │ parse error"
 
 {
   IFS= read -r model_name
   IFS= read -r ctx_pct
-  IFS= read -r cost
+  IFS= read -r effort
   IFS= read -r dir
   IFS= read -r branch
   IFS= read -r rate5h
   IFS= read -r rate7d
   IFS= read -r agent_name
   IFS= read -r cwd_full
-  IFS= read -r lines_add
-  IFS= read -r lines_rm
   IFS= read -r duration_ms
   IFS= read -r ctx_size
   IFS= read -r wt_name
   IFS= read -r rate5h_reset_at
   IFS= read -r rate7d_reset_at
+  IFS= read -r tok_in
+  IFS= read -r tok_out
   IFS= read -r _sentinel
 } <<< "$parsed"
 
@@ -211,18 +210,43 @@ if [[ "$model" != *context* && "$model" != *Context* ]]; then
 fi
 
 # ═══════════════════════════════════════════════════════════════
-# 費用
+# 推理強度 effort（條件顯示，僅模型支援時 JSON 才帶 .effort.level）
 # ═══════════════════════════════════════════════════════════════
 
-cost_val="${cost:-0}"
-cost_fmt=$(printf '%.2f' "$cost_val" 2>/dev/null || echo "0.00")
-cost_int=${cost_val%.*}
-cost_int=${cost_int:-0}
+effort="${effort:-}"
+effort_section=""
+if [[ -n "$effort" ]]; then
+  # 強度越高顏色越警示：max/xhigh 紅、high 黃、其餘灰
+  case "$effort" in
+    max|xhigh) effort_color="$RED" ;;
+    high)      effort_color="$YELLOW" ;;
+    *)         effort_color="$GRAY" ;;
+  esac
+  effort_section="${SEP}${effort_color}${S_EFFORT}${effort}${RST}"
+fi
 
-if (( cost_int >= 10 )); then cost_color="$RED"
-elif (( cost_int >= 5 )); then cost_color="$YELLOW"
-elif [[ "$cost_fmt" == "0.00" ]]; then cost_color="$GRAY"
-else cost_color="$YELLOW"; fi
+# ═══════════════════════════════════════════════════════════════
+# Token 用量（In: 輸入 / Out: 輸出，零值智慧隱藏）
+# ═══════════════════════════════════════════════════════════════
+
+# 人類可讀格式：1234→1.2k、1234567→1.2M
+format_tokens() {
+  local n=$1
+  if (( n >= 1000000 )); then
+    printf '%d.%dM' $(( n / 1000000 )) $(( (n % 1000000) / 100000 ))
+  elif (( n >= 1000 )); then
+    printf '%d.%dk' $(( n / 1000 )) $(( (n % 1000) / 100 ))
+  else
+    printf '%d' "$n"
+  fi
+}
+
+tok_in=${tok_in:-0}
+tok_out=${tok_out:-0}
+tokens_section=""
+if (( tok_in > 0 || tok_out > 0 )); then
+  tokens_section="${SEP}${GRAY}In:$(format_tokens "$tok_in") Out:$(format_tokens "$tok_out")${RST}"
+fi
 
 # ═══════════════════════════════════════════════════════════════
 # 經過時間（零值智慧隱藏）
@@ -298,17 +322,6 @@ if [[ -n "${cwd_full:-}" && -d "${cwd_full:-}" ]]; then
 fi
 
 # ═══════════════════════════════════════════════════════════════
-# 行數增減（零值智慧隱藏）
-# ═══════════════════════════════════════════════════════════════
-
-lines_add=${lines_add:-0}
-lines_rm=${lines_rm:-0}
-lines_section=""
-if (( lines_add > 0 || lines_rm > 0 )); then
-  lines_section="${GREEN}+${lines_add}${RST}/${RED}-${lines_rm}${RST}"
-fi
-
-# ═══════════════════════════════════════════════════════════════
 # 速率限制（條件顯示，含重置倒計時）
 # ═══════════════════════════════════════════════════════════════
 
@@ -381,7 +394,8 @@ else prompt_color="$GREEN"; fi
 
 line1="${PURPLE}${S_BRAND}${RST} ${CYAN}${model}${RST}"
 line1+="${SEP}${bar} ${pct_color}${pct_int}%${RST}${ctx_warn}${ctx_label}"
-line1+="${SEP}${cost_color}${S_COST}\$${cost_fmt}${RST}"
+line1+="${effort_section}"
+line1+="${tokens_section}"
 line1+="${dur_section}"
 line1+="${rate_section}"
 
@@ -392,9 +406,6 @@ line1+="${rate_section}"
 parts=()
 if [[ -n "$git_branch" ]]; then
   parts+=("${BRIGHT_PURPLE}${S_BRANCH}${git_branch}${dirty}${RST}")
-fi
-if [[ -n "$lines_section" ]]; then
-  parts+=("${lines_section}")
 fi
 parts+=("${BRIGHT_PURPLE}${dir}${RST}")
 
