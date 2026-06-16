@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # ~/.claude/statusline.sh — Claude Code session status line (aesthetic edition)
 #
-# 兩行輸出：
-#   第一行：◆ 模型 │ 漸層進度條 百分比 │ effort 推理強度 │ 時間 │ 速率限制
-#   第二行：⎇分支* │ 目錄
+# 單行輸出：
+#   ◆ 模型 │ 漸層進度條 百分比 │ effort 推理強度 │ 時間 │ 速率限制 │ ⎇分支* │ 目錄
 #
 # 環境變數：
 #   CLAUDE_STATUSLINE_ASCII=1     退回純 ASCII
@@ -362,7 +361,7 @@ elif (( pct_int >= 70 )); then prompt_color="$YELLOW"
 else prompt_color="$GREEN"; fi
 
 # ═══════════════════════════════════════════════════════════════
-# 組裝第一行
+# 組裝單行（原第二行的分支/目錄/指示器接到第一行最後面）
 # ═══════════════════════════════════════════════════════════════
 
 line1="${PURPLE}${S_BRAND}${RST} ${CYAN}${model}${RST}"
@@ -371,35 +370,21 @@ line1+="${effort_section}"
 line1+="${dur_section}"
 line1+="${rate_section}"
 
-# ═══════════════════════════════════════════════════════════════
-# 組裝第二行
-# ═══════════════════════════════════════════════════════════════
-
-parts=()
 if [[ -n "$git_branch" ]]; then
-  parts+=("${BRIGHT_PURPLE}${S_BRANCH}${git_branch}${dirty}${RST}")
+  line1+="${SEP}${BRIGHT_PURPLE}${S_BRANCH}${git_branch}${dirty}${RST}"
 fi
-parts+=("${BRIGHT_PURPLE}${dir}${RST}")
+line1+="${SEP}${BRIGHT_PURPLE}${dir}${RST}"
 
 # Agent / Worktree 指示器（僅在非主 session 時顯示）
 if [[ -n "${wt_name:-}" ]]; then
-  parts+=("${YELLOW}⚙ worktree:${wt_name}${RST}")
+  line1+="${SEP}${YELLOW}⚙ worktree:${wt_name}${RST}"
 elif [[ -n "${agent_name:-}" ]]; then
-  parts+=("${YELLOW}⚙ ${agent_name}${RST}")
+  line1+="${SEP}${YELLOW}⚙ ${agent_name}${RST}"
 fi
-
-line2=""
-for i in "${!parts[@]}"; do
-  if (( i > 0 )); then
-    line2+="${SEP}"
-  fi
-  line2+="${parts[$i]}"
-done
 
 # ═══════════════════════════════════════════════════════════════
 # 輸出
 # ═══════════════════════════════════════════════════════════════
 
-# 只輸出兩行（Claude Code 有自己的輸入提示符，不需要我們的 ❯）
-printf '%b\n%b' "$line1" "$line2"
+printf '%b' "$line1"
 
