@@ -2,7 +2,7 @@
 # ~/.claude/statusline.sh — Claude Code session status line (aesthetic edition)
 #
 # 兩行輸出：
-#   第一行：◆ 模型 │ 漸層進度條 百分比 │ effort 推理強度 │ In:輸入 Out:輸出 token │ 時間 │ 速率限制
+#   第一行：◆ 模型 │ 漸層進度條 百分比 │ effort 推理強度 │ 時間 │ 速率限制
 #   第二行：⎇分支* │ 目錄
 #
 # 環境變數：
@@ -115,9 +115,6 @@ parsed=$(echo "$input" | jq -r '
   (.worktree.name // ""),
   (.rate_limits.five_hour.resets_at // 0 | tostring),
   (.rate_limits.seven_day.resets_at // 0 | tostring),
-  (.context_window.total_input_tokens // 0 | tostring),
-  (.context_window.total_output_tokens // 0 | tostring),
-  (.transcript_path // ""),
   "END"
 ' 2>/dev/null) || fallback_prompt "─ │ parse error"
 
@@ -136,9 +133,6 @@ parsed=$(echo "$input" | jq -r '
   IFS= read -r wt_name
   IFS= read -r rate5h_reset_at
   IFS= read -r rate7d_reset_at
-  IFS= read -r tok_in
-  IFS= read -r tok_out
-  IFS= read -r transcript_path
   IFS= read -r _sentinel
 } <<< "$parsed"
 
@@ -225,78 +219,6 @@ if [[ -n "$effort" ]]; then
     *)         effort_color="$GRAY" ;;
   esac
   effort_section="${SEP}${effort_color}${S_EFFORT}${effort}${RST}"
-fi
-
-# ═══════════════════════════════════════════════════════════════
-# Token 用量（In: 輸入 / Out: 輸出，本 session 累計，零值智慧隱藏）
-# ═══════════════════════════════════════════════════════════════
-#
-# context_window.total_* 自 v2.1.132 起只反映「當前上下文快照」而非整個
-# session 累計，因此這裡改為解析 transcript（JSONL）把每次 API 回應的 usage
-# 加總起來，得到真正的 session 累計值。以 transcript mtime 為鍵做快取，
-# 內容沒變就不重算；無法讀取 transcript 時退回 context_window 快照。
-
-# 人類可讀格式：1234→1.2k、1234567→1.2M
-format_tokens() {
-  local n=$1
-  if (( n >= 1000000 )); then
-    printf '%d.%dM' $(( n / 1000000 )) $(( (n % 1000000) / 100000 ))
-  elif (( n >= 1000 )); then
-    printf '%d.%dk' $(( n / 1000 )) $(( (n % 1000) / 100 ))
-  else
-    printf '%d' "$n"
-  fi
-}
-
-file_mtime() {
-  if [[ "$(uname)" == "Darwin" ]]; then
-    stat -f %m "$1" 2>/dev/null || echo 0
-  else
-    stat -c %Y "$1" 2>/dev/null || echo 0
-  fi
-}
-
-# 預設：退回 context_window 快照
-tok_in=${tok_in:-0}
-tok_out=${tok_out:-0}
-
-if [[ -n "${transcript_path:-}" && -f "$transcript_path" ]]; then
-  tp_mtime=$(file_mtime "$transcript_path")
-  tp_key=$(printf '%s' "$transcript_path" | cksum | cut -d' ' -f1)
-  TOKEN_CACHE="/tmp/claude-statusline-tokens-${tp_key}"
-
-  cache_mtime=""; cache_in=""; cache_out=""
-  if [[ -f "$TOKEN_CACHE" ]]; then
-    IFS='|' read -r cache_mtime cache_in cache_out < "$TOKEN_CACHE" || true
-  fi
-
-  if [[ "$cache_mtime" == "$tp_mtime" && -n "$cache_in" ]]; then
-    tok_in="$cache_in"
-    tok_out="$cache_out"
-  else
-    # 串流逐行加總（jq -n inputs，不一次載入整個檔案）
-    sums=$(jq -n -r '
-      reduce inputs as $l ({i:0, o:0};
-        ($l.message.usage // null) as $u
-        | if $u then
-            { i: (.i + ($u.input_tokens // 0)
-                     + ($u.cache_creation_input_tokens // 0)
-                     + ($u.cache_read_input_tokens // 0)),
-              o: (.o + ($u.output_tokens // 0)) }
-          else . end)
-      | "\(.i) \(.o)"
-    ' "$transcript_path" 2>/dev/null) || sums=""
-    if [[ -n "$sums" ]]; then
-      tok_in="${sums% *}"
-      tok_out="${sums#* }"
-      printf '%s|%s|%s\n' "$tp_mtime" "$tok_in" "$tok_out" > "$TOKEN_CACHE" 2>/dev/null || true
-    fi
-  fi
-fi
-
-tokens_section=""
-if (( tok_in > 0 || tok_out > 0 )); then
-  tokens_section="${SEP}${GRAY}In:$(format_tokens "$tok_in") Out:$(format_tokens "$tok_out")${RST}"
 fi
 
 # ═══════════════════════════════════════════════════════════════
@@ -446,7 +368,6 @@ else prompt_color="$GREEN"; fi
 line1="${PURPLE}${S_BRAND}${RST} ${CYAN}${model}${RST}"
 line1+="${SEP}${bar} ${pct_color}${pct_int}%${RST}${ctx_warn}${ctx_label}"
 line1+="${effort_section}"
-line1+="${tokens_section}"
 line1+="${dur_section}"
 line1+="${rate_section}"
 
