@@ -361,7 +361,7 @@ elif (( pct_int >= 70 )); then prompt_color="$YELLOW"
 else prompt_color="$GREEN"; fi
 
 # ═══════════════════════════════════════════════════════════════
-# 組裝單行（原第二行的分支/目錄/指示器接到第一行最後面）
+# 組裝（第一行：模型/進度/effort/時間/速率；第二行：分支/目錄/指示器）
 # ═══════════════════════════════════════════════════════════════
 
 line1="${PURPLE}${S_BRAND}${RST} ${CYAN}${model}${RST}"
@@ -370,21 +370,22 @@ line1+="${effort_section}"
 line1+="${dur_section}"
 line1+="${rate_section}"
 
+line2=""
 if [[ -n "$git_branch" ]]; then
-  line1+="${SEP}${BRIGHT_PURPLE}${S_BRANCH}${git_branch}${dirty}${RST}"
+  line2+="${BRIGHT_PURPLE}${S_BRANCH}${git_branch}${dirty}${RST}${SEP}"
 fi
-line1+="${SEP}${BRIGHT_PURPLE}${dir}${RST}"
+line2+="${BRIGHT_PURPLE}${dir}${RST}"
 
 # Agent / Worktree 指示器（僅在非主 session 時顯示）
 if [[ -n "${wt_name:-}" ]]; then
-  line1+="${SEP}${YELLOW}⚙ worktree:${wt_name}${RST}"
+  line2+="${SEP}${YELLOW}⚙ worktree:${wt_name}${RST}"
 elif [[ -n "${agent_name:-}" ]]; then
-  line1+="${SEP}${YELLOW}⚙ ${agent_name}${RST}"
+  line2+="${SEP}${YELLOW}⚙ ${agent_name}${RST}"
 fi
 
 # ═══════════════════════════════════════════════════════════════
 # 輸出
 # ═══════════════════════════════════════════════════════════════
 
-printf '%b' "$line1"
+printf '%b\n%b' "$line1" "$line2"
 
