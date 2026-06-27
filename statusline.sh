@@ -156,43 +156,7 @@ pct_int=${pct_int:-0}
 if (( pct_int < 0 )); then pct_int=0; fi
 if (( pct_int > 100 )); then pct_int=100; fi
 
-bar_filled=$(( pct_int / 10 ))
-if (( bar_filled > 10 )); then bar_filled=10; fi
-
-# 漸層色（真彩色）：綠 → 黃 → 橘 → 紅
-GRAD_R=(46 116 186 241 239 236 233 231 211 192)
-GRAD_G=(204 195 186 196 161 126 101 76 66 57)
-GRAD_B=(113 89 64 15 24 34 44 60 50 43)
-
-bar=""
-if [[ "$USE_ASCII" == "1" ]]; then
-  # ASCII 模式
-  for (( i=0; i<10; i++ )); do
-    if (( i < bar_filled )); then bar+="#"; else bar+="-"; fi
-  done
-elif (( USE_TRUECOLOR )); then
-  # 真彩色漸層：每格獨立上色
-  for (( i=0; i<10; i++ )); do
-    if (( i < bar_filled )); then
-      bar+="\\033[38;2;${GRAD_R[$i]};${GRAD_G[$i]};${GRAD_B[$i]}m█"
-    else
-      bar+="\\033[38;2;60;60;60m░"
-    fi
-  done
-  bar+="${RST}"
-else
-  # ANSI 退回：依整體百分比選色
-  if (( pct_int >= 90 )); then bar_color="$RED"
-  elif (( pct_int >= 70 )); then bar_color="$YELLOW"
-  else bar_color="$GREEN"; fi
-
-  for (( i=0; i<10; i++ )); do
-    if (( i < bar_filled )); then bar+="█"; else bar+="░"; fi
-  done
-  bar="${bar_color}${bar}${RST}"
-fi
-
-# 百分比文字顏色（跟進度條整體色一致）
+# 上下文用量文字（取代進度條），顏色與百分比數值一致
 if (( pct_int >= 90 )); then pct_color="$RED"
 elif (( pct_int >= 70 )); then pct_color="$YELLOW"
 else pct_color="$GREEN"; fi
@@ -309,16 +273,12 @@ if (( dur_ms > 0 )); then
   dur_d=$((dur_sec / 86400))
   dur_h=$(((dur_sec % 86400) / 3600))
   dur_min=$(((dur_sec % 3600) / 60))
-  dur_s=$((dur_sec % 60))
-  # 格式化後仍為 0m0s 就不顯示（session 啟動初期 dur_ms 可能是幾百毫秒）
-  if (( dur_d > 0 || dur_h > 0 || dur_min > 0 || dur_s > 0 )); then
-    dur_fmt=""
-    (( dur_d > 0 )) && dur_fmt+="${dur_d}d"
-    (( dur_h > 0 )) && dur_fmt+="${dur_h}h"
-    (( dur_min > 0 )) && dur_fmt+="${dur_min}m"
-    dur_fmt+="${dur_s}s"
-    dur_section="${SEP}${GRAY}${S_TIME}${dur_fmt}${RST}"
-  fi
+  # 最小單位到分（捨去秒）；不足一分鐘仍顯示 0m
+  dur_fmt=""
+  (( dur_d > 0 )) && dur_fmt+="${dur_d}d"
+  (( dur_h > 0 )) && dur_fmt+="${dur_h}h"
+  dur_fmt+="${dur_min}m"
+  dur_section="${SEP}${GRAY}${S_TIME}${dur_fmt}${RST}"
 fi
 
 # ═══════════════════════════════════════════════════════════════
@@ -443,7 +403,7 @@ else prompt_color="$GREEN"; fi
 # ═══════════════════════════════════════════════════════════════
 
 line1="${PURPLE}${S_BRAND}${RST} ${CYAN}${model}${RST}"
-line1+="${SEP}${bar} ${pct_color}${pct_int}%${RST}${ctx_warn}${ctx_label}"
+line1+="${SEP}${pct_color}Ctx ${pct_int}%${RST}${ctx_warn}${ctx_label}"
 line1+="${effort_section}"
 line1+="${tokens_section}"
 line1+="${dur_section}"
