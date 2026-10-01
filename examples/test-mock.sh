@@ -2,7 +2,7 @@
 # test-mock.sh — Test statusline.sh with mock JSON data
 #
 # Usage: ./examples/test-mock.sh [scenario]
-# Scenarios: normal, warning, danger, startup, agent, worktree, ascii, nerdfont
+# Scenarios: normal, warning, danger, startup, agent, worktree, ultracode, ascii, nerdfont
 
 set -euo pipefail
 
@@ -43,6 +43,33 @@ JSON_AGENT='{"model":{"display_name":"Claude Opus 4.6"},"context_window":{"used_
 
 JSON_WORKTREE='{"model":{"display_name":"Claude Opus 4.6"},"context_window":{"used_percentage":42,"context_window_size":1000000},"cost":{"total_cost_usd":0.85,"total_lines_added":150,"total_lines_removed":30,"total_duration_ms":222000},"workspace":{"current_dir":"/Users/dev/my-project"},"worktree":{"branch":"worktree-my-feature","name":"my-feature","path":"/path/to/worktree"}}'
 
+# ── Ultracode：以假 transcript 模擬 ultra_effort_enter / exit attachment ──
+
+TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+T_ON="$TMP_DIR/ultracode-on.jsonl"
+T_OFF="$TMP_DIR/ultracode-off.jsonl"
+T_QUOTED="$TMP_DIR/ultracode-quoted.jsonl"
+printf '%s\n' '{"type":"attachment","attachment":{"type":"ultra_effort_enter","reminderType":"full"}}' > "$T_ON"
+printf '%s\n' '{"type":"attachment","attachment":{"type":"ultra_effort_enter","reminderType":"full"}}' \
+               '{"type":"attachment","attachment":{"type":"ultra_effort_exit"}}' > "$T_OFF"
+# tool output 內被跳脫引用的字串不應誤判為開啟
+printf '%s\n' '{"type":"user","content":"{\"attachment\":{\"type\":\"ultra_effort_enter\"}}"}' > "$T_QUOTED"
+
+json_with_transcript() {
+  echo "$JSON_NORMAL" | jq -c --arg t "$1" '. + {transcript_path: $t, effort: {level: "xhigh"}}'
+}
+JSON_ULTRA_ON=$(json_with_transcript "$T_ON")
+JSON_ULTRA_OFF=$(json_with_transcript "$T_OFF")
+JSON_ULTRA_QUOTED=$(json_with_transcript "$T_QUOTED")
+
+run_ultracode_tests() {
+  run_test "Ultracode on (✦ultracode shown)" "$JSON_ULTRA_ON"
+  run_test "Ultracode off after exit (hidden)" "$JSON_ULTRA_OFF"
+  run_test "Ultracode quoted in tool output (hidden)" "$JSON_ULTRA_QUOTED"
+}
+
 # ── Run tests ──
 
 case "${SCRIPT}" in
@@ -52,6 +79,7 @@ case "${SCRIPT}" in
   startup)  run_test "Session startup (zero values hidden)" "$JSON_STARTUP" ;;
   agent)    run_test "Agent mode (code-reviewer)" "$JSON_AGENT" ;;
   worktree) run_test "Worktree mode (my-feature)" "$JSON_WORKTREE" ;;
+  ultracode) run_ultracode_tests ;;
   ascii)    run_test "ASCII fallback" "$JSON_NORMAL" "CLAUDE_STATUSLINE_ASCII=1" ;;
   nerdfont) run_test "Nerd Font mode" "$JSON_NORMAL" "CLAUDE_STATUSLINE_NERDFONT=1" ;;
   all)
@@ -61,12 +89,13 @@ case "${SCRIPT}" in
     run_test "Session startup (zero values hidden)" "$JSON_STARTUP"
     run_test "Agent mode (code-reviewer)" "$JSON_AGENT"
     run_test "Worktree mode (my-feature)" "$JSON_WORKTREE"
+    run_ultracode_tests
     run_test "ASCII fallback" "$JSON_NORMAL" "CLAUDE_STATUSLINE_ASCII=1"
     run_test "Nerd Font mode" "$JSON_NORMAL" "CLAUDE_STATUSLINE_NERDFONT=1"
     ;;
   *)
     echo "Unknown scenario: $SCRIPT"
-    echo "Available: normal, warning, danger, startup, agent, worktree, ascii, nerdfont, all"
+    echo "Available: normal, warning, danger, startup, agent, worktree, ultracode, ascii, nerdfont, all"
     exit 1
     ;;
 esac

@@ -37,6 +37,7 @@ Turn the blank status bar into a real-time dashboard: model, context usage with 
 | **Dynamic cost coloring** | Yellow by default, red when > $10. |
 | **Git branch + dirty** | Shows branch name with `*` for uncommitted changes. Cached for 5 seconds to stay fast. |
 | **Rate limits** | 5-hour and 7-day usage (Claude Pro/Max only). Red when > 80%. |
+| **Ultracode indicator** | `⚡xhigh ✦ultracode` — shown only while ultracode is on. Detected from the session transcript (the statusline JSON has no ultracode field), so a toggle shows up one prompt later. |
 | **Agent / Worktree indicator** | `⚙ code-reviewer` or `⚙ worktree:my-feature` — only when active. |
 | **Context window size** | Shows `1M` or `200k` only when not already in the model name. |
 | **Brand identity** | `◆` diamond in Anthropic purple (#7266EA). |
@@ -108,10 +109,11 @@ Claude Code's `statusLine` hook sends a JSON payload to your script via stdin af
 
 This script:
 
-1. **Single `jq` call** (~3ms) — parses all 14 fields at once
+1. **Single `jq` call** (~3ms) — parses all 15 fields at once
 2. **Git cache** (~0ms on cache hit, ~40ms on refresh) — dirty check cached for 5 seconds in `/tmp/`
-3. **Smart assembly** — only non-zero sections are rendered
-4. **`printf '%b'`** — interprets ANSI escape codes for the final colored output
+3. **Incremental ultracode scan** (~0–20ms) — only bytes appended to the transcript since the last run are scanned; offset cached in `/tmp/`. The first run on a very large transcript (50MB+) takes ~0.3s once
+4. **Smart assembly** — only non-zero sections are rendered
+5. **`printf '%b'`** — interprets ANSI escape codes for the final colored output
 
 Total: **< 50ms** end-to-end.
 

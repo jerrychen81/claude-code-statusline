@@ -2,7 +2,7 @@
 # ~/.claude/statusline.sh — Claude Code session status line (aesthetic edition)
 #
 # 單行輸出：
-#   ◆ 模型 │ 漸層進度條 百分比 │ effort 推理強度 │ 時間 │ 速率限制 │ ⎇分支* │ 目錄
+#   ◆ 模型 │ 漸層進度條 百分比 │ effort 推理強度 [✦ultracode] │ 時間 │ 速率限制 │ ⎇分支* │ 目錄
 #
 # 環境變數：
 #   CLAUDE_STATUSLINE_ASCII=1     退回純 ASCII
@@ -55,6 +55,7 @@ if [[ "$USE_ASCII" == "1" ]]; then
   S_PROMPT=">"
   S_TIME=""
   S_EFFORT=""
+  S_ULTRA="+"
   SEP=" | "
 elif [[ "$USE_NERDFONT" == "1" ]]; then
   S_BRAND="◆"
@@ -63,6 +64,7 @@ elif [[ "$USE_NERDFONT" == "1" ]]; then
   S_PROMPT="❯"
   S_TIME="󰔟 "
   S_EFFORT="󰓅 "
+  S_ULTRA="✦"
   if [[ "$USE_POWERLINE" == "1" ]]; then
     SEP="  "
   else
@@ -75,6 +77,7 @@ else
   S_PROMPT="❯"
   S_TIME=""
   S_EFFORT="⚡"
+  S_ULTRA="✦"
   if [[ "$USE_POWERLINE" == "1" ]]; then
     SEP="  "
   else
@@ -114,6 +117,7 @@ parsed=$(echo "$input" | jq -r '
   (.worktree.name // ""),
   (.rate_limits.five_hour.resets_at // 0 | tostring),
   (.rate_limits.seven_day.resets_at // 0 | tostring),
+  (.transcript_path // ""),
   "END"
 ' 2>/dev/null) || fallback_prompt "─ │ parse error"
 
@@ -132,6 +136,7 @@ parsed=$(echo "$input" | jq -r '
   IFS= read -r wt_name
   IFS= read -r rate5h_reset_at
   IFS= read -r rate7d_reset_at
+  IFS= read -r transcript_path
   IFS= read -r _sentinel
 } <<< "$parsed"
 
@@ -182,6 +187,71 @@ if [[ -n "$effort" ]]; then
     *)         effort_color="$GRAY" ;;
   esac
   effort_section="${SEP}${effort_color}${S_EFFORT}${effort}${RST}"
+fi
+
+# ═══════════════════════════════════════════════════════════════
+# Ultracode（間接偵測，僅開啟時顯示）
+# ═══════════════════════════════════════════════════════════════
+#
+# statusline JSON 沒有 ultracode 欄位，effort.level 也只帶基底強度。
+# Claude Code 切換時會在 transcript 寫入 ultra_effort_enter / ultra_effort_exit
+# attachment，取最後一筆判斷（與 Claude Code 內部邏輯相同）。
+# 限制：attachment 在下一個 prompt 才寫入，切換後約延遲一輪才反映。
+# pattern 錨定 "attachment":{ 以避開 tool output 內被跳脫引用的同名字串。
+
+# 效能：大型 transcript（數十 MB）全掃約 0.3s，故以快取記錄已掃位移與狀態，
+# 每次只掃新增部分（重疊 64KB 以涵蓋寫到一半的行）；檔案變小（被替換）時重掃。
+
+ULTRA_CACHE_DIR="/tmp/claude-statusline-ultracode"
+ULTRA_OVERLAP=65536
+ultra_state="off"
+
+file_size() {
+  if [[ "$(uname)" == "Darwin" ]]; then
+    stat -f %z "$1" 2>/dev/null || echo 0
+  else
+    stat -c %s "$1" 2>/dev/null || echo 0
+  fi
+}
+
+ultra_scan() {
+  # stdin: transcript 片段；輸出最後一筆 enter/exit，無則空
+  grep -oE '"attachment":\{"type":"ultra_effort_(enter|exit)"' 2>/dev/null | tail -1 || true
+}
+
+if [[ -n "${transcript_path:-}" && -f "$transcript_path" ]]; then
+  mkdir -p "$ULTRA_CACHE_DIR" 2>/dev/null || true
+  ultra_cache="$ULTRA_CACHE_DIR/$(basename "$transcript_path" .jsonl)"
+  t_size=$(file_size "$transcript_path")
+  c_offset=-1
+  c_state="off"
+  if [[ -f "$ultra_cache" ]]; then
+    IFS='|' read -r c_offset c_state < "$ultra_cache" || true
+    [[ "$c_offset" =~ ^[0-9]+$ ]] || c_offset=-1
+  fi
+
+  if (( c_offset >= 0 && c_offset <= t_size )); then
+    ultra_state="$c_state"
+    if (( t_size > c_offset )); then
+      start=$(( c_offset > ULTRA_OVERLAP ? c_offset - ULTRA_OVERLAP : 0 ))
+      ultra_last=$(tail -c +$(( start + 1 )) "$transcript_path" | ultra_scan)
+      if [[ "$ultra_last" == *enter* ]]; then ultra_state="on"
+      elif [[ "$ultra_last" == *exit* ]]; then ultra_state="off"; fi
+    fi
+  else
+    ultra_last=$(ultra_scan < "$transcript_path")
+    if [[ "$ultra_last" == *enter* ]]; then ultra_state="on"; fi
+  fi
+  echo "${t_size}|${ultra_state}" > "$ultra_cache" 2>/dev/null || true
+fi
+
+ultra_section=""
+if [[ "$ultra_state" == "on" ]]; then
+  if [[ -n "$effort_section" ]]; then
+    ultra_section=" ${MAGENTA}${S_ULTRA}ultracode${RST}"
+  else
+    ultra_section="${SEP}${MAGENTA}${S_ULTRA}ultracode${RST}"
+  fi
 fi
 
 # ═══════════════════════════════════════════════════════════════
@@ -327,6 +397,7 @@ else prompt_color="$GREEN"; fi
 line1="${PURPLE}${S_BRAND}${RST} ${CYAN}${model}${RST}"
 line1+="${SEP}${pct_color}Ctx ${pct_int}%${RST}${ctx_warn}${ctx_label}"
 line1+="${effort_section}"
+line1+="${ultra_section}"
 line1+="${dur_section}"
 line1+="${rate_section}"
 
