@@ -305,8 +305,13 @@ fi
 # ═══════════════════════════════════════════════════════════════
 # Git 分支與髒標記（帶快取）
 # ═══════════════════════════════════════════════════════════════
+#
+# 快取依工作目錄分檔：同時開在不同目錄的 session 各讀各的，不會在 5 秒內
+# 顯示到別的 session 的分支與髒標記。路徑直接當檔名，先跳脫 % 再把 / 換成
+# %2F，不同路徑不會撞名。
 
-GIT_CACHE="/tmp/claude-statusline-git-cache"
+GIT_CACHE_DIR="/tmp/claude-statusline-git"
+GIT_CACHE=""
 GIT_CACHE_MAX_AGE=5
 
 git_branch="${branch:-}"
@@ -325,6 +330,9 @@ git_cache_is_stale() {
 }
 
 if [[ -n "${cwd_full:-}" && -d "${cwd_full:-}" ]]; then
+  git_key="${cwd_full//"%"/%25}"
+  GIT_CACHE="$GIT_CACHE_DIR/${git_key//\//%2F}"
+  [[ -d "$GIT_CACHE_DIR" ]] || mkdir -p "$GIT_CACHE_DIR" 2>/dev/null || true
   if git_cache_is_stale; then
     if git -C "$cwd_full" rev-parse --git-dir &>/dev/null; then
       cached_branch="${git_branch}"
@@ -339,14 +347,14 @@ if [[ -n "${cwd_full:-}" && -d "${cwd_full:-}" ]]; then
          ! git -C "$cwd_full" -c core.useBuiltinFSMonitor=false diff --cached --quiet 2>/dev/null; then
         cached_dirty="*"
       fi
-      echo "${cached_branch}|${cached_dirty}" > "$GIT_CACHE"
+      echo "${cached_branch}|${cached_dirty}" > "$GIT_CACHE" 2>/dev/null || true
     else
-      echo "|" > "$GIT_CACHE"
+      echo "|" > "$GIT_CACHE" 2>/dev/null || true
     fi
   fi
 
   if [[ -f "$GIT_CACHE" ]]; then
-    IFS='|' read -r cached_br cached_dt < "$GIT_CACHE"
+    IFS='|' read -r cached_br cached_dt < "$GIT_CACHE" || true
     if [[ -z "$git_branch" ]]; then git_branch="${cached_br}"; fi
     dirty="${cached_dt}"
   fi

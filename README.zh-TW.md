@@ -107,7 +107,7 @@ Claude Code 的 `statusLine` 機制會在每次助理回覆後，把完整的 se
 本腳本的處理流程：
 
 1. **單次 `jq` 呼叫**（~3ms）——一次解析全部 16 個欄位
-2. **Git 快取**（命中 ~0ms，重整 ~40ms）——髒標記結果快取在 `/tmp/`，5 秒更新一次
+2. **Git 快取**（命中 ~0ms，重整 ~40ms）——分支與髒標記快取在 `/tmp/`，每個工作目錄一份、5 秒更新一次，同時開多個 session 也不會串到別人的分支
 3. **Ultracode 增量掃描**（~0–20ms）——只掃 transcript 自上次以來新增的部分，位移快取在 `/tmp/`；超大 transcript（50MB 以上）首次全掃約 0.3s，僅一次
 4. **Remote Control 檢查**（~3ms）——再一次 `jq` 掃 `~/.claude/sessions/*.json`，找本 session 的 `bridgeSessionId`
 5. **智慧組裝**——只有非零的區段才會出現在畫面上

@@ -111,7 +111,7 @@ Claude Code's `statusLine` hook sends a JSON payload to your script via stdin af
 This script:
 
 1. **Single `jq` call** (~3ms) — parses all 16 fields at once
-2. **Git cache** (~0ms on cache hit, ~40ms on refresh) — dirty check cached for 5 seconds in `/tmp/`
+2. **Git cache** (~0ms on cache hit, ~40ms on refresh) — branch and dirty check cached for 5 seconds in `/tmp/`, one file per working directory, so concurrent sessions never show each other's branch
 3. **Incremental ultracode scan** (~0–20ms) — only bytes appended to the transcript since the last run are scanned; offset cached in `/tmp/`. The first run on a very large transcript (50MB+) takes ~0.3s once
 4. **Remote Control check** (~3ms) — one more `jq` over `~/.claude/sessions/*.json` for this session's `bridgeSessionId`
 5. **Smart assembly** — only non-zero sections are rendered

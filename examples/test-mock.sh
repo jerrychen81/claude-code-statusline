@@ -2,7 +2,7 @@
 # test-mock.sh — Test statusline.sh with mock JSON data
 #
 # Usage: ./examples/test-mock.sh [scenario]
-# Scenarios: normal, warning, danger, startup, agent, worktree, ultracode, remote, ascii, nerdfont
+# Scenarios: normal, warning, danger, startup, agent, worktree, ultracode, remote, gitcache, ascii, nerdfont
 
 set -euo pipefail
 
@@ -46,7 +46,8 @@ JSON_WORKTREE='{"model":{"display_name":"Claude Opus 4.6"},"context_window":{"us
 # ── Ultracode：以假 transcript 模擬 ultra_effort_enter / exit attachment ──
 
 TMP_DIR=$(mktemp -d)
-trap 'rm -rf "$TMP_DIR"' EXIT
+# 一併清掉 gitcache 情境在 /tmp/claude-statusline-git/ 留下的快取（檔名含 TMP_DIR 的隨機名）
+trap 'rm -rf "$TMP_DIR"; rm -f /tmp/claude-statusline-git/*"${TMP_DIR##*/}"*' EXIT
 
 T_ON="$TMP_DIR/ultracode-on.jsonl"
 T_OFF="$TMP_DIR/ultracode-off.jsonl"
@@ -90,6 +91,22 @@ run_remote_tests() {
   run_test "Remote Control stale pid file (hidden)" "$(json_with_session rc-stale)" "$env_prefix"
 }
 
+# ── Git 快取：剛在 git repo 跑過，5 秒內換到非 git 目錄，不應沿用前者的分支 ──
+
+GIT_REPO_DIR="$TMP_DIR/git-repo"
+PLAIN_DIR="$TMP_DIR/plain-dir"
+git init -q -b cache-test "$GIT_REPO_DIR"
+mkdir -p "$PLAIN_DIR"
+
+json_with_dir() {
+  echo "$JSON_STARTUP" | jq -c --arg d "$1" '.workspace.current_dir = $d'
+}
+
+run_gitcache_tests() {
+  run_test "Git repo (⎇ cache-test shown)" "$(json_with_dir "$GIT_REPO_DIR")"
+  run_test "Plain dir right after (no branch carried over)" "$(json_with_dir "$PLAIN_DIR")"
+}
+
 # ── Run tests ──
 
 case "${SCRIPT}" in
@@ -101,6 +118,7 @@ case "${SCRIPT}" in
   worktree) run_test "Worktree mode (my-feature)" "$JSON_WORKTREE" ;;
   ultracode) run_ultracode_tests ;;
   remote)   run_remote_tests ;;
+  gitcache) run_gitcache_tests ;;
   ascii)    run_test "ASCII fallback" "$JSON_NORMAL" "CLAUDE_STATUSLINE_ASCII=1" ;;
   nerdfont) run_test "Nerd Font mode" "$JSON_NORMAL" "CLAUDE_STATUSLINE_NERDFONT=1" ;;
   all)
@@ -112,12 +130,13 @@ case "${SCRIPT}" in
     run_test "Worktree mode (my-feature)" "$JSON_WORKTREE"
     run_ultracode_tests
     run_remote_tests
+    run_gitcache_tests
     run_test "ASCII fallback" "$JSON_NORMAL" "CLAUDE_STATUSLINE_ASCII=1"
     run_test "Nerd Font mode" "$JSON_NORMAL" "CLAUDE_STATUSLINE_NERDFONT=1"
     ;;
   *)
     echo "Unknown scenario: $SCRIPT"
-    echo "Available: normal, warning, danger, startup, agent, worktree, ultracode, remote, ascii, nerdfont, all"
+    echo "Available: normal, warning, danger, startup, agent, worktree, ultracode, remote, gitcache, ascii, nerdfont, all"
     exit 1
     ;;
 esac
