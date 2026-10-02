@@ -39,6 +39,7 @@
 | **速率限制** | 5 小時和 7 天用量（僅 Claude Pro/Max）。超過 80% 變紅色。 |
 | **Ultracode 指示器** | `⚡xhigh ✦ultracode`——僅在 ultracode 開啟時顯示。statusline JSON 沒有 ultracode 欄位，改由 session transcript 偵測，切換後約延遲一個 prompt 才反映。 |
 | **Agent / Worktree 指示器** | `⚙ code-reviewer` 或 `⚙ worktree:my-feature`——僅在啟用時顯示。 |
+| **Remote Control 指示器** | `⇄ remote-control`——僅在本 session 開著 `/remote-control` 時顯示。statusline JSON 沒有這個欄位（`remote` 是本機 TUI 連到遠端 session 時才帶，與它無關），改讀 Claude Code 的 `~/.claude/sessions/<pid>.json` 的 `bridgeSessionId`，接上或斷開下一次重繪即反映。 |
 | **上下文視窗大小** | 顯示 `1M` 或 `200k`，但如果模型名稱已包含此資訊則不重複。 |
 | **品牌識別** | `◆` 菱形，用 Anthropic 品牌紫 (#7266EA) 上色。 |
 | **三層渲染退回** | 真彩色 → ANSI → ASCII。任何終端機都能用。 |
@@ -105,11 +106,12 @@ Claude Code 的 `statusLine` 機制會在每次助理回覆後，把完整的 se
 
 本腳本的處理流程：
 
-1. **單次 `jq` 呼叫**（~3ms）——一次解析全部 15 個欄位
+1. **單次 `jq` 呼叫**（~3ms）——一次解析全部 16 個欄位
 2. **Git 快取**（命中 ~0ms，重整 ~40ms）——髒標記結果快取在 `/tmp/`，5 秒更新一次
 3. **Ultracode 增量掃描**（~0–20ms）——只掃 transcript 自上次以來新增的部分，位移快取在 `/tmp/`；超大 transcript（50MB 以上）首次全掃約 0.3s，僅一次
-4. **智慧組裝**——只有非零的區段才會出現在畫面上
-5. **`printf '%b'`**——最終解釋 ANSI 跳脫碼，輸出彩色結果
+4. **Remote Control 檢查**（~3ms）——再一次 `jq` 掃 `~/.claude/sessions/*.json`，找本 session 的 `bridgeSessionId`
+5. **智慧組裝**——只有非零的區段才會出現在畫面上
+6. **`printf '%b'`**——最終解釋 ANSI 跳脫碼，輸出彩色結果
 
 端到端耗時：**< 50ms**。
 

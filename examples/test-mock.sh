@@ -2,7 +2,7 @@
 # test-mock.sh — Test statusline.sh with mock JSON data
 #
 # Usage: ./examples/test-mock.sh [scenario]
-# Scenarios: normal, warning, danger, startup, agent, worktree, ultracode, ascii, nerdfont
+# Scenarios: normal, warning, danger, startup, agent, worktree, ultracode, remote, ascii, nerdfont
 
 set -euo pipefail
 
@@ -70,6 +70,26 @@ run_ultracode_tests() {
   run_test "Ultracode quoted in tool output (hidden)" "$JSON_ULTRA_QUOTED"
 }
 
+# ── Remote Control：以假 sessions/<pid>.json 模擬 bridgeSessionId ──
+
+RC_CONFIG="$TMP_DIR/config"
+mkdir -p "$RC_CONFIG/sessions"
+printf '{"pid":%s,"sessionId":"rc-on","bridgeSessionId":"session_mock"}\n' "$$" > "$RC_CONFIG/sessions/on.json"
+printf '{"pid":%s,"sessionId":"rc-off","bridgeSessionId":null}\n' "$$" > "$RC_CONFIG/sessions/off.json"
+# pid 已不在的殘檔不應誤判為開啟
+printf '{"pid":%s,"sessionId":"rc-stale","bridgeSessionId":"session_mock"}\n' 99999999 > "$RC_CONFIG/sessions/stale.json"
+
+json_with_session() {
+  echo "$JSON_NORMAL" | jq -c --arg s "$1" '. + {session_id: $s}'
+}
+
+run_remote_tests() {
+  local env_prefix="CLAUDE_CONFIG_DIR=$RC_CONFIG"
+  run_test "Remote Control on (⇄ remote-control shown)" "$(json_with_session rc-on)" "$env_prefix"
+  run_test "Remote Control off after disconnect (hidden)" "$(json_with_session rc-off)" "$env_prefix"
+  run_test "Remote Control stale pid file (hidden)" "$(json_with_session rc-stale)" "$env_prefix"
+}
+
 # ── Run tests ──
 
 case "${SCRIPT}" in
@@ -80,6 +100,7 @@ case "${SCRIPT}" in
   agent)    run_test "Agent mode (code-reviewer)" "$JSON_AGENT" ;;
   worktree) run_test "Worktree mode (my-feature)" "$JSON_WORKTREE" ;;
   ultracode) run_ultracode_tests ;;
+  remote)   run_remote_tests ;;
   ascii)    run_test "ASCII fallback" "$JSON_NORMAL" "CLAUDE_STATUSLINE_ASCII=1" ;;
   nerdfont) run_test "Nerd Font mode" "$JSON_NORMAL" "CLAUDE_STATUSLINE_NERDFONT=1" ;;
   all)
@@ -90,12 +111,13 @@ case "${SCRIPT}" in
     run_test "Agent mode (code-reviewer)" "$JSON_AGENT"
     run_test "Worktree mode (my-feature)" "$JSON_WORKTREE"
     run_ultracode_tests
+    run_remote_tests
     run_test "ASCII fallback" "$JSON_NORMAL" "CLAUDE_STATUSLINE_ASCII=1"
     run_test "Nerd Font mode" "$JSON_NORMAL" "CLAUDE_STATUSLINE_NERDFONT=1"
     ;;
   *)
     echo "Unknown scenario: $SCRIPT"
-    echo "Available: normal, warning, danger, startup, agent, worktree, ultracode, ascii, nerdfont, all"
+    echo "Available: normal, warning, danger, startup, agent, worktree, ultracode, remote, ascii, nerdfont, all"
     exit 1
     ;;
 esac

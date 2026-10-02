@@ -2,7 +2,7 @@
 # ~/.claude/statusline.sh — Claude Code session status line (aesthetic edition)
 #
 # 單行輸出：
-#   ◆ 模型 │ 漸層進度條 百分比 │ effort 推理強度 [✦ultracode] │ 時間 │ 速率限制 │ ⎇分支* │ 目錄
+#   ◆ 模型 │ 漸層進度條 百分比 │ effort 推理強度 [✦ultracode] │ 時間 │ 速率限制 │ ⎇分支* │ 目錄 [⇄ remote-control]
 #
 # 環境變數：
 #   CLAUDE_STATUSLINE_ASCII=1     退回純 ASCII
@@ -56,6 +56,7 @@ if [[ "$USE_ASCII" == "1" ]]; then
   S_TIME=""
   S_EFFORT=""
   S_ULTRA="+"
+  S_RC=""
   SEP=" | "
 elif [[ "$USE_NERDFONT" == "1" ]]; then
   S_BRAND="◆"
@@ -65,6 +66,7 @@ elif [[ "$USE_NERDFONT" == "1" ]]; then
   S_TIME="󰔟 "
   S_EFFORT="󰓅 "
   S_ULTRA="✦"
+  S_RC="⇄ "
   if [[ "$USE_POWERLINE" == "1" ]]; then
     SEP="  "
   else
@@ -78,6 +80,7 @@ else
   S_TIME=""
   S_EFFORT="⚡"
   S_ULTRA="✦"
+  S_RC="⇄ "
   if [[ "$USE_POWERLINE" == "1" ]]; then
     SEP="  "
   else
@@ -118,6 +121,7 @@ parsed=$(echo "$input" | jq -r '
   (.rate_limits.five_hour.resets_at // 0 | tostring),
   (.rate_limits.seven_day.resets_at // 0 | tostring),
   (.transcript_path // ""),
+  (.session_id // ""),
   "END"
 ' 2>/dev/null) || fallback_prompt "─ │ parse error"
 
@@ -137,6 +141,7 @@ parsed=$(echo "$input" | jq -r '
   IFS= read -r rate5h_reset_at
   IFS= read -r rate7d_reset_at
   IFS= read -r transcript_path
+  IFS= read -r session_id
   IFS= read -r _sentinel
 } <<< "$parsed"
 
@@ -252,6 +257,30 @@ if [[ "$ultra_state" == "on" ]]; then
   else
     ultra_section="${SEP}${MAGENTA}${S_ULTRA}ultracode${RST}"
   fi
+fi
+
+# ═══════════════════════════════════════════════════════════════
+# Remote Control（間接偵測，僅開啟時顯示）
+# ═══════════════════════════════════════════════════════════════
+#
+# statusline JSON 沒有 Remote Control 欄位；.remote 是本機 TUI 以 viewer 身分
+# 連到遠端 session 時才帶，與 /remote-control 無關。Claude Code 在 bridge 接上
+# 與斷開時會把 sessions/<pid>.json 的 bridgeSessionId 寫成 "session_…" 與 null，
+# 以 session_id 找出本 session 的檔案判斷；pid 已不在的殘檔不算。
+
+rc_section=""
+rc_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions"
+if [[ -n "${session_id:-}" && -d "$rc_dir" ]]; then
+  rc_pids=$(jq -r --arg sid "$session_id" '
+    select(.sessionId == $sid and (.bridgeSessionId | type) == "string" and .bridgeSessionId != "")
+    | .pid
+  ' "$rc_dir"/*.json 2>/dev/null) || true
+  for rc_pid in $rc_pids; do
+    if [[ "$rc_pid" =~ ^[0-9]+$ ]] && kill -0 "$rc_pid" 2>/dev/null; then
+      rc_section="${SEP}${GREEN}${S_RC}remote-control${RST}"
+      break
+    fi
+  done
 fi
 
 # ═══════════════════════════════════════════════════════════════
@@ -413,6 +442,7 @@ if [[ -n "${wt_name:-}" ]]; then
 elif [[ -n "${agent_name:-}" ]]; then
   line2+="${SEP}${YELLOW}⚙ ${agent_name}${RST}"
 fi
+line2+="${rc_section}"
 
 # ═══════════════════════════════════════════════════════════════
 # 輸出
