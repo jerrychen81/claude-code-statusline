@@ -337,14 +337,14 @@ if [[ -n "${cwd_full:-}" && -d "${cwd_full:-}" ]]; then
     if git -C "$cwd_full" rev-parse --git-dir &>/dev/null; then
       cached_branch="${git_branch}"
       if [[ -z "$cached_branch" ]]; then
-        cached_branch=$(git -C "$cwd_full" -c core.useBuiltinFSMonitor=false branch --show-current 2>/dev/null) || true
+        cached_branch=$(git -C "$cwd_full" -c core.fsmonitor=false branch --show-current 2>/dev/null) || true
         if [[ -z "$cached_branch" ]]; then
           cached_branch=$(git -C "$cwd_full" rev-parse --short HEAD 2>/dev/null) || true
         fi
       fi
       cached_dirty=""
-      if ! git -C "$cwd_full" -c core.useBuiltinFSMonitor=false diff --quiet 2>/dev/null || \
-         ! git -C "$cwd_full" -c core.useBuiltinFSMonitor=false diff --cached --quiet 2>/dev/null; then
+      if ! git -C "$cwd_full" -c core.fsmonitor=false diff --quiet 2>/dev/null || \
+         ! git -C "$cwd_full" -c core.fsmonitor=false diff --cached --quiet 2>/dev/null; then
         cached_dirty="*"
       fi
       echo "${cached_branch}|${cached_dirty}" > "$GIT_CACHE" 2>/dev/null || true
